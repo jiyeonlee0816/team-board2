@@ -356,6 +356,8 @@ export default function App() {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
+  const [sortColumns, setSortColumns] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     localStorage.setItem('pro-kanban-tasks', JSON.stringify(tasks));
@@ -372,6 +374,22 @@ export default function App() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+
+  const priorityWeight = { high: 3, medium: 2, low: 1 };
+
+  const getFilteredAndSortedTasks = (columnId: string) => {
+    let filtered = tasks.filter(t => t.columnId === columnId);
+    
+    if (filterPriority !== 'all') {
+      filtered = filtered.filter(t => t.priority === filterPriority);
+    }
+
+    if (sortColumns[columnId]) {
+      return [...filtered].sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
+    }
+
+    return filtered;
+  };
 
   const onDragStart = (event: DragStartEvent) => {
     if (event.active.data.current?.type === 'Task') {
@@ -450,6 +468,10 @@ export default function App() {
     }
   };
 
+  const toggleSort = (columnId: string) => {
+    setSortColumns(prev => ({ ...prev, [columnId]: !prev[columnId] }));
+  };
+
   const saveTask = (updatedTask: Task) => {
     setTasks(tasks.map(t => t.id === updatedTask.id ? updatedTask : t));
     setIsModalOpen(false);
@@ -475,12 +497,25 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
+            <div className="hidden lg:flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+              {(['all', 'high', 'medium', 'low'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setFilterPriority(p)}
+                  className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${
+                    filterPriority === p 
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' 
+                      : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                  }`}
+                >
+                  {p === 'all' ? '전체' : p === 'high' ? '높음' : p === 'medium' ? '보통' : '낮음'}
+                </button>
+              ))}
+            </div>
+
             <div className="hidden md:flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400 mr-4">
               <span className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
                 <AlertCircle size={12} className="text-rose-500" /> {tasks.length} 업무
-              </span>
-              <span className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg ml-2">
-                <CheckCircle2 size={12} className="text-emerald-500" /> {tasks.filter(t => t.columnId === 'done').length} 완료
               </span>
             </div>
             
@@ -513,17 +548,64 @@ export default function App() {
           >
             <div className="flex gap-8 items-start min-h-[calc(100vh-180px)]">
               {columns.map(col => (
-                <ColumnContainer
-                  key={col.id}
-                  column={col}
-                  tasks={tasks.filter(t => t.columnId === col.id)}
-                  onAddTask={addTask}
-                  onEditColumn={editColumn}
-                  onCardClick={(task) => {
-                    setSelectedTask(task);
-                    setIsModalOpen(true);
-                  }}
-                />
+                <div key={col.id} className="flex flex-col w-full md:w-[320px] shrink-0 h-full">
+                  <div className="flex items-center justify-between mb-4 px-2 group">
+                    <div className="flex items-center gap-2">
+                      <h2 
+                        onClick={() => editColumn(col)}
+                        className="font-bold text-slate-700 dark:text-slate-200 cursor-pointer hover:text-blue-600 transition-colors"
+                      >
+                        {col.title}
+                      </h2>
+                      <span className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                        {getFilteredAndSortedTasks(col.id).length}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => toggleSort(col.id)}
+                        title="우선순위 정렬"
+                        className={`p-1.5 rounded-lg transition-colors ${sortColumns[col.id] ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500'}`}
+                      >
+                        <Layout size={14} className="rotate-90" />
+                      </button>
+                      <button 
+                        onClick={() => addTask(col.id)}
+                        className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-500 transition-colors"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto pr-1">
+                    <SortableContext items={getFilteredAndSortedTasks(col.id).map(t => t.id)} strategy={verticalListSortingStrategy}>
+                      <div className="min-h-[150px]">
+                        {getFilteredAndSortedTasks(col.id).length > 0 ? (
+                          getFilteredAndSortedTasks(col.id).map(task => (
+                            <Card key={task.id} task={task} onClick={(t) => {
+                              setSelectedTask(t);
+                              setIsModalOpen(true);
+                            }} />
+                          ))
+                        ) : (
+                          <div className="h-32 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center justify-center text-slate-400 dark:text-slate-600 gap-2">
+                            <Layout size={24} strokeWidth={1.5} />
+                            <p className="text-xs">카드가 없습니다</p>
+                          </div>
+                        )}
+                      </div>
+                    </SortableContext>
+                    
+                    <button
+                      onClick={() => addTask(col.id)}
+                      className="w-full py-3 mt-2 flex items-center justify-center gap-2 text-xs font-medium text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/10 rounded-xl transition-all"
+                    >
+                      <Plus size={14} />
+                      새 카드 추가
+                    </button>
+                  </div>
+                </div>
               ))}
               
               <button
